@@ -1,0 +1,82 @@
+name: Build Baloch OBD APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract ZIP
+        run: |
+          unzip -o BalochOBD_GitHub.zip -d source
+          PROJECT=$(find source -name settings.gradle.kts -print -quit)
+          test -n "$PROJECT"
+          echo "PROJECT_DIR=$(dirname "$PROJECT")" >> "$GITHUB_ENV"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK manually
+        shell: bash
+        run: |
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+
+          curl -fL --retry 3 \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            -o /tmp/android-tools.zip
+
+          unzip -q /tmp/android-tools.zip \
+            -d "$SDK/cmdline-tools"
+
+          mv "$SDK/cmdline-tools/cmdline-tools" \
+            "$SDK/cmdline-tools/latest"
+
+          export ANDROID_HOME="$SDK"
+          export ANDROID_SDK_ROOT="$SDK"
+
+          MANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+
+          yes | "$MANAGER" --licenses || true
+
+          "$MANAGER" --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+          gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Baloch-OBD-APK
+          path: source/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          
